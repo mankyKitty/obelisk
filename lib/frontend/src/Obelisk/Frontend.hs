@@ -18,11 +18,12 @@ module Obelisk.Frontend
   , runFrontendWithConfigsAndCurrentRoute
   , renderFrontendHtml
   , removeHTMLConfigs
+  , baseHrefConfigKey
   , FrontendMode (..)
   , module Obelisk.Frontend.Cookie
   ) where
 
-import Prelude hiding ((.))
+import Prelude hiding ((.),id)
 
 import Control.Category
 import Control.Lens
@@ -36,9 +37,12 @@ import Data.ByteString (ByteString)
 import Data.Foldable (for_)
 import Data.Functor.Sum
 import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe (catMaybes)
 import Data.Monoid ((<>))
 import Data.Text (Text)
+import Data.Text.Encoding as TE
+import Data.Text.Encoding.Error as TE
 import qualified GHCJS.DOM as DOM
 import qualified GHCJS.DOM.Types as DOM
 import qualified GHCJS.DOM.History as DOM
@@ -99,8 +103,14 @@ data Frontend route = Frontend
   , _frontend_body :: !(forall js t m. ObeliskWidget js t route m => RoutedT t route m ())
   }
 
-baseTag :: forall route js t m. ObeliskWidget js t route m => RoutedT t route m ()
-baseTag = elAttr "base" ("href" =: "/") blank --TODO: Figure out the base URL from the routes
+baseHrefConfigKey :: Text
+baseHrefConfigKey = "frontend/base-href"
+
+lookupBase :: Map Text ByteString -> Text
+lookupBase = maybe "/" (TE.decodeUtf8With TE.lenientDecode) . Map.lookup baseHrefConfigKey
+
+baseTag :: forall route js t m. ObeliskWidget js t route m => Text -> RoutedT t route m ()
+baseTag b = elAttr "base" ("href" =: b) blank --TODO: Figure out the base URL from the routes
 
 removeHTMLConfigs :: JSM ()
 removeHTMLConfigs = void $ runMaybeT $ do
@@ -212,7 +222,7 @@ runFrontendWithConfigsAndCurrentRoute mode configs validFullEncoder frontend = d
               (switchover'', fire) <- newTriggerEvent
               mapRoutedT (mapSetRouteT (mapRouteToUrlT (appendHead . runConfigsT configs))) $ do
                 -- The order here is important - baseTag has to be before headWidget!
-                baseTag
+                baseTag (lookupBase configs)
                 _frontend_head frontend
               mapRoutedT (mapSetRouteT (mapRouteToUrlT (appendBody . runConfigsT configs))) $ do
                 _frontend_body frontend
@@ -244,7 +254,7 @@ renderFrontendHtml configs cookies urlEnc route frontend headExtra bodyExtra = d
   html <- fmap snd $ liftIO $ renderStatic $ fmap fst $ runCookiesT cookies $ runConfigsT configs $ flip runRouteToUrlT urlEnc $ runSetRouteT $ flip runRoutedT (pure route) $
     el "html" $ do
       el "head" $ do
-        baseTag
+        baseTag (lookupBase configs)
         injectExecutableConfigs configs
         _frontend_head frontend
         headExtra

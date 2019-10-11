@@ -65,6 +65,14 @@ let
       (self: super: let
         pkgs = self.callPackage ({ pkgs }: pkgs) {};
         haskellLib = pkgs.haskell.lib;
+        # TODO: Clean up and upstream changes then remove this
+        jsaddleSrc = pkgs.fetchFromGitHub {
+          owner = "mankyKitty";
+          repo = "jsaddle"; # branch = "sc-more-flexible-webkit2gtk";
+          rev = "34dfd2fe1d10e40037a1e3d369526b915f86e8fb";
+          sha256 = "19wg4l6xiflmd6p9nsqc2d2j9yfk9p1zchx70ihaxix7m903hars";
+          private = false;
+        };
       in {
         # Dynamic linking with split objects dramatically increases startup time (about
         # 0.5 seconds on a decent machine with SSD), so we do `justStaticExecutables`.
@@ -80,7 +88,8 @@ let
             '';
           });
         obelisk-selftest = haskellLib.justStaticExecutables super.obelisk-selftest;
-        jsaddle-webkit2gtk = self.callCabal2nix "jsaddle-webkit2gtk" ../../../jsaddle/jsaddle-webkit2gtk {};
+        # TODO: Remove once changes are upstreamed
+        jsaddle-webkit2gtk = self.callCabal2nix "jsaddle-webkit2gtk" "${jsaddleSrc}/jsaddle-webkit2gtk" {};
       })
     ];
   };

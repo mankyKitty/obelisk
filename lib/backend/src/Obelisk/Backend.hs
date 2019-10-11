@@ -9,17 +9,21 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Obelisk.Backend
   ( Backend (..)
+  , StaticAssets (..)
   -- * Re-exports
   , Default (def)
   , getPageName
   , getRouteWith
+  , runSnapWithConfig
   , runSnapWithCommandLineArgs
   , serveDefaultObeliskApp
   , prettifyOutput
+  , runBackendWith
   , runBackend
   , staticRenderContentType
   , mkRouteToUrl
   , getPublicConfigs
+  , defaultStaticAssets
   ) where
 
 import Prelude hiding (id, (.))
@@ -99,16 +103,19 @@ defaultFrontendGhcjsAssets = StaticAssets
   , _staticAssets_unprocessed = "frontend.jsexe"
   }
 
-runSnapWithCommandLineArgs :: MonadIO m => Snap () -> m ()
-runSnapWithCommandLineArgs a = do
-  -- Get the web server configuration from the command line
-  cmdLineConf <- liftIO $ commandLineConfig defaultConfig
-  let httpConf = cmdLineConf
+runSnapWithConfig :: MonadIO m => Config Snap a -> Snap () -> m ()
+runSnapWithConfig conf a = do
+  let httpConf = conf
         { accessLog = Just $ ConfigIoLog BSC8.putStrLn
         , errorLog = Just $ ConfigIoLog BSC8.putStrLn
         }
   -- Start the web server
   liftIO $ httpServe httpConf a
+
+-- Get the web server configuration from the command line
+runSnapWithCommandLineArgs :: MonadIO m => Snap () -> m ()
+runSnapWithCommandLineArgs s = liftIO (commandLineConfig defaultConfig) >>= \c ->
+  runSnapWithConfig c s
 
 getPageName :: (MonadSnap m) => m PageName
 getPageName = do
@@ -149,6 +156,9 @@ data StaticAssets = StaticAssets
   }
   deriving (Show, Read, Eq, Ord)
 
+instance Default StaticAssets where
+  def = defaultStaticAssets
+
 data GhcjsAppRoute :: (* -> *) -> * -> * where
   GhcjsAppRoute_App :: appRouteComponent a -> GhcjsAppRoute appRouteComponent a
   GhcjsAppRoute_Resource :: GhcjsAppRoute appRouteComponent [Text]
@@ -172,17 +182,29 @@ serveGhcjsApp urlEnc app config = \case
   GhcjsAppRoute_Resource :=> Identity pathSegments -> serveStaticAssets (_ghcjsApp_compiled app) pathSegments
 
 runBackend :: Backend backendRoute frontendRoute -> Frontend (R frontendRoute) -> IO ()
-runBackend backend frontend = case checkEncoder $ _backend_routeEncoder backend of
+runBackend = runBackendWith runSnapWithCommandLineArgs defaultStaticAssets
+
+runBackendWith 
+  :: (Snap () -> IO ())
+  -- ^ Run the snap server
+  -> StaticAssets
+  -- ^ Use these assets
+  -> Backend backendRoute frontendRoute
+  -- ^ Backend to run
+  -> Frontend (R frontendRoute)
+  -- ^ Corresponding frontend (for static rendering)
+  -> IO ()
+runBackendWith runSnap staticAssets backend frontend = case checkEncoder $ _backend_routeEncoder backend of
   Left e -> fail $ "backend error:\n" <> T.unpack e
   Right validFullEncoder -> do
     publicConfigs <- getPublicConfigs
     _backend_run backend $ \serveRoute -> do
-      runSnapWithCommandLineArgs $ do
+      runSnap $ do
         getRouteWith validFullEncoder >>= \case
           Identity r -> case r of
             FullRoute_Backend backendRoute :/ a -> serveRoute $ backendRoute :/ a
             FullRoute_Frontend obeliskRoute :/ a ->
-              serveDefaultObeliskApp (mkRouteToUrl validFullEncoder) (serveStaticAssets defaultStaticAssets) frontend publicConfigs $
+              serveDefaultObeliskApp (mkRouteToUrl validFullEncoder) (serveStaticAssets staticAssets) frontend publicConfigs $
                 obeliskRoute :/ a
 
 mkRouteToUrl :: Encoder Identity parse (R (FullRoute br fr)) PageName -> R fr -> Text

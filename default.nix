@@ -80,8 +80,8 @@ let
             '';
           });
         obelisk-selftest = haskellLib.justStaticExecutables super.obelisk-selftest;
+        jsaddle-webkit2gtk = self.callCabal2nix "jsaddle-webkit2gtk" ../../../jsaddle/jsaddle-webkit2gtk {};
       })
-
     ];
   };
 
@@ -218,19 +218,6 @@ in rec {
     };
   };
 
-  # linuxBackend = haskellLib.overrideCabal ghcObelisk.obelisk-linux-executable (drv: {
-  #   libraryFrameworkDepends = [ pkgs.webkit pkgs.glib-networking ];
-  #   configureFlags = [
-  #     "--ghc-options=-optl=${(pkgs.openssl.override { static = true; }).out}/lib/libcrypto.a"
-  #     "--ghc-options=-optl=${(pkgs.openssl.override { static = true; }).out}/lib/libssl.a"
-  #     "--ghc-options=-optl=${pkgs.zlib.static}/lib/libz.a"
-  #     "--ghc-options=-optl=${pkgs.gmp6.override { withStatic = true; }}/lib/libgmp.a"
-  #     "--ghc-options=-optl=${pkgs.libffi.override {
-  #       stdenv = pkgs.stdenvAdapters.makeStaticLibraries pkgs.stdenv;
-  #     }}/lib/libffi.a"
-  #   ];
-  # });
-
   serverExe = backend: frontend: assets: optimizationLevel: version:
     pkgs.runCommand "serverExe" {} ''
       mkdir $out
@@ -253,6 +240,35 @@ in rec {
         ];
       };
     };
+
+  mkNativeLinuxPkg = common: backend: frontend: assets:
+    let
+      obeliskLinuxDesktop = ghcObelisk.callCabal2nix "obelisk-linux-desktop" ./exe/linux-desktop {
+        common = common;
+        backend = backend;
+        frontend = frontend;
+      };
+      nativeStaticBin = haskellLib.overrideCabal obeliskLinuxDesktop (drv: {
+        libraryFrameworkDepends = [ pkgs.webkit pkgs.glib-networking ];
+        configureFlags = [
+          "--ghc-options=-optl=${(pkgs.openssl.override { static = true; }).out}/lib/libcrypto.a"
+          "--ghc-options=-optl=${(pkgs.openssl.override { static = true; }).out}/lib/libssl.a"
+          "--ghc-options=-optl=${pkgs.zlib.static}/lib/libz.a"
+          "--ghc-options=-optl=${pkgs.gmp6.override { withStatic = true; }}/lib/libgmp.a"
+          "--ghc-options=-optl=${pkgs.libffi.override {
+            stdenv = pkgs.stdenvAdapters.makeStaticLibraries pkgs.stdenv;
+          }}/lib/libffi.a"
+        ];
+      });
+    in
+      nativeStaticBin.overrideAttrs (old: {
+        nativeBuildInputs = old.nativeBuildInputs ++ [pkgs.wrapGAppsHook];
+        postInstall = ''
+          set -eux
+          ln -s "${mkAssets assets}" $out/bin/static.assets
+          ln -s "${assets}" "$out/bin/static"
+        '';
+      });
 
   # An Obelisk project is a reflex-platform project with a predefined layout and role for each component
   project = base: projectDefinition:
@@ -299,6 +315,7 @@ in rec {
                           processedStatic.symlinked;
                     } // android;
                   };
+
                   __iosWithConfig = configPath: {
                     ${if ios == null then null else frontendName} = {
                       executableName = "frontend";
@@ -327,6 +344,7 @@ in rec {
                     commonName
                   ];
                 };
+
                 android = __androidWithConfig (base + "/config");
                 ios = __iosWithConfig (base + "/config");
                 passthru = { inherit android ios packages overrides tools shellToolOverrides withHoogle staticFiles staticFilesImpure __closureCompilerOptimizationLevel processedStatic __iosWithConfig __androidWithConfig; };
@@ -343,26 +361,17 @@ in rec {
       linuxSys = "x86_64-linux";
       linuxExe = serverOn linuxSys;
 
-      linuxDesktopExe = backend: frontend:
-        nixpkgs.haskellPackages.callCabal2nix "obelisk-linux-desktop" ./exe/linux-desktop {
-          backend = backend;
-          frontend = frontend;
-        };
-
-      linuxNative = (linuxDesktopExe (projectOut linuxSys).ghc.backend (projectOut linuxSys).ghc.frontend).overrideAttrs (old: {
-        nativeBuildInputs = old.nativeBuildInputs ++ [pkgs.wrapGAppsHook];
-        postInstall = ''
-          set -eux
-          ln -s "${mkAssets (projectOut linuxSys).passthru.staticFiles}" $out/bin/static.assets
-          ln -s "${(projectOut linuxSys).passthru.staticFiles}" "$out/bin/static"
-        '';
-      });
+      linuxNative = mkNativeLinuxPkg
+        ((projectOut linuxSys).ghc.common)
+        ((projectOut linuxSys).ghc.backend)
+        ((projectOut linuxSys).ghc.frontend)
+        (projectOut linuxSys).passthru.staticFiles;
 
       dummyVersion = "Version number is only available for deployments";
     in projectOut system // {
       linuxExeConfigurable = linuxExe;
       linuxExe = linuxExe dummyVersion;
-      linuxNative = linuxNative;
+      linuxNativePkg = linuxNative;
       exe = serverOn system dummyVersion;
       server = args@{ hostName, adminEmail, routeHost, enableHttps, version }:
         server (args // { exe = linuxExe version; });

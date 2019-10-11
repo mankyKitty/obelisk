@@ -5,7 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-module LinuxApp where
+module Main where
 
 import Debug.Trace (traceShowM,traceShowId)
 import Control.Concurrent
@@ -24,13 +24,16 @@ import Foreign.StablePtr (StablePtr)
 import GHC.IO.Handle
 import Language.Javascript.JSaddle.Types (JSM)
 import qualified Language.Javascript.JSaddle as JS
--- import Obelisk.Backend
--- import Obelisk.Frontend
--- import Obelisk.Route.Frontend
+
+import Obelisk.Backend
+import Obelisk.Frontend
+import Obelisk.Route (checkEncoder)
+
 import Reflex.Dom
 import Servant.API
 import System.FilePath ((</>))
 import System.IO
+
 import qualified Control.Concurrent.Async as Async
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -48,10 +51,11 @@ import qualified System.Directory as Directory
 import qualified System.Environment as Env
 import qualified System.Process as Process
 
-import Language.Javascript.JSaddle.Webkit2Gtk (runLinuxWebView)
+import Language.Javascript.JSaddle.WebKitGTK (runLinuxWebView)
 
 import Backend (backend)
 import Frontend (frontend)
+import Common.Route 
 
 data LinuxFFI = LinuxFFI
   { _linuxFFI_global_openFileDialog :: IO (Maybe String)
@@ -74,28 +78,18 @@ getFreePort = Socket.withSocketsDo $ do
 main :: IO ()
 main = do
   exePath <- L.init . L.dropWhileEnd (/= '/') <$> Env.getExecutablePath
-
-  let basePath :: (IsString a, Semigroup a) => a
-      basePath = fromString exePath
-
   putStrLn $ "Executable path: " <> exePath
-
   port <- getFreePort
 
-  let staticAssets = StaticAssets
-        { _staticAssets_processed = basePath </> "static.assets"
-        , _staticAssets_unprocessed = basePath </> "static"
-        }
-      backendEncoder = either (error "frontend: Failed to check backendRouteEncoder") id $
+  let backendEncoder = either (error "frontend: Failed to check backendRouteEncoder") id $
         checkEncoder backendRouteEncoder
 
-      route :: (IsString s, Semigroup s) => s
       route = "http://localhost:" <> fromString (show port) <> "/"
 
       -- We don't need to serve anything useful here under Frontend
       b = runBackendWith
         (runSnapWithConfig $ Snap.setPort (fromIntegral port) Snap.defaultConfig)
-        staticAssets
+        def
         backend
         (Frontend blank blank)
 
@@ -104,16 +98,7 @@ main = do
 
   Async.withAsync b $ \_ -> do
     liftIO $ putStrLn "Starting jsaddle"
-
-    runLinuxWebView route handleOpen $ do
-      mInitFile <- liftIO $ tryTakeMVar fileOpenedMVar
-
-      let frontendMode = FrontendMode
-            { _frontendMode_hydrate = False
-            , _frontendMode_adjustRoute = True
-            }
-
+    runLinuxWebView route $ do
       liftIO $ putStrLn "Starting frontend"
-
       -- Run real obelisk frontend
-      runFrontendWithConfigsAndCurrentRoute frontendMode mempty backendEncoder frontend
+      runFrontend backendEncoder frontend

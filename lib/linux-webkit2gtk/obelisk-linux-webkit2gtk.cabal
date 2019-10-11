@@ -1,11 +1,10 @@
-name: obelisk-linux-desktop
+name: obelisk-linux-webkit2gtk
 version: 0.1
 cabal-version: >= 1.8
 build-type: Simple
 
-executable obelisk-linux-desktop
+library
   hs-source-dirs: src
-  main-is:        LinuxApp.hs
 
   if !os(linux) || impl(ghcjs)
     buildable: False
@@ -28,16 +27,10 @@ executable obelisk-linux-desktop
                , wai-cors
                , warp
 
-               , backend
-               , frontend
-               , common
-
                , bytestring
                , data-default
                , unix
-               , process
                , lens >= 4.15 && < 5
-
                , 
                  aeson >=0.8.0.2 && <1.5,
                  directory >=1.0.0.2 && <1.4,
@@ -54,5 +47,8 @@ executable obelisk-linux-desktop
                      
                , jsaddle
                , jsaddle-webkit2gtk
+
+  exposed-modules: Obelisk.Linux.Webkit2Gtk
+                 , Obelisk.Linux.Run
 
   frameworks: WebKit

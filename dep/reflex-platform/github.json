@@ -1,7 +1,8 @@
 {
-  "owner": "reflex-frp",
+  "owner": "mankyKitty",
   "repo": "reflex-platform",
-  "branch": "rc/0.6.1.0",
-  "rev": "673c2622b288504bb57006e6b440d5240ce1865c",
-  "sha256": "0ny8dah1s3amvs1h5k8j1zwzmh07a12af833b6g32cxf0qlj3v0l"
+  "branch": "sc@ts-test-selenium",
+  "private": false,
+  "rev": "5252ee0510165c9a2a592afcdc96771a0bdb652c",
+  "sha256": "05wj9k9hqgsavcfivx37wibsdlhh3csfxiyf2lm2kffc44sgbjvz"
 }
